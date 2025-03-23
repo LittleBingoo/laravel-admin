@@ -46,6 +46,11 @@ class ResourceGenerator
     ];
 
     /**
+     * @var bool
+     */
+    protected $doctrineAvailable = false;
+
+    /**
      * ResourceGenerator constructor.
      *
      * @param mixed $model
@@ -53,6 +58,10 @@ class ResourceGenerator
     public function __construct($model)
     {
         $this->model = $this->getModel($model);
+        
+        if (method_exists($this->model->getConnection(), 'isDoctrineAvailable')) {
+            $this->doctrineAvailable = true;  
+        }
     }
 
     /**
@@ -213,6 +222,34 @@ class ResourceGenerator
      */
     protected function getTableColumns()
     {
+        if ($this->doctrineAvailable) {
+            return $this->listTableColumnsDoctrine();
+        }
+        
+        return $this->listTableColumns($this->model);
+    }
+
+    /**
+     * Format label.
+     *
+     * @param string $value
+     *
+     * @return string
+     */
+    protected function formatLabel($value)
+    {
+        return ucfirst(str_replace(['-', '_'], ' ', $value));
+    }
+
+    /**
+     * Get columns of a giving model.
+     *
+     * @throws \Exception
+     *
+     * @return \Doctrine\DBAL\Schema\Column[]
+     */
+    protected function listTableColumnsDoctrine()
+    {
         if (!$this->model->getConnection()->isDoctrineAvailable()) {
             throw new \Exception(
                 'You need to require doctrine/dbal: ~2.3 in your own composer.json to get database columns. '
@@ -241,14 +278,54 @@ class ResourceGenerator
     }
 
     /**
-     * Format label.
-     *
-     * @param string $value
-     *
-     * @return string
+     * Get columns of a giving model.
+     * 
+     * @return array
      */
-    protected function formatLabel($value)
+    protected function listTableColumns()
     {
-        return ucfirst(str_replace(['-', '_'], ' ', $value));
+        $moduleColumns = $this->model->getConnection()->getSchemaBuilder()->getColumns($this->model->getTable());
+
+        $columns = [];
+
+        foreach ($moduleColumns as $column) {
+            $columns[] = new class($column) {
+                public $column;
+
+                public function __construct($column)
+                {
+                    $this->column = $column;
+                }
+
+                public function getName()
+                {
+                    return $this->column['name'];
+                }
+
+                public function getDefault()
+                {
+                    return $this->column['default'];
+                }
+
+                public function getType()
+                {
+                    return new class($this->column) {
+                        public $column;
+
+                        public function __construct($column)
+                        {
+                            $this->column = $column;
+                        }
+
+                        public function getName()
+                        {
+                            return $this->column['type'];
+                        }
+                    };
+                }
+            };
+        }
+
+        return $columns;
     }
 }
